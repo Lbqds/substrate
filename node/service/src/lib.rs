@@ -52,14 +52,14 @@ pub mod chain_spec;
 use std::sync::Arc;
 use codec::Decode;
 use transaction_pool::txpool::{Pool as TransactionPool};
-use node_primitives::{Block, Hash, Timestamp, BlockId};
+use node_primitives::{Block, Hash, Timestamp, BlockId, AccountId};
 use node_runtime::{GenesisConfig, BlockPeriod, StorageValue, Runtime};
 use client::Client;
 use consensus::AuthoringApi;
 use node_network::{Protocol as DemoProtocol, consensus::ConsensusNetwork};
 use tokio::runtime::TaskExecutor;
 use service::FactoryFullConfiguration;
-use primitives::{Blake2Hasher, storage::StorageKey, twox_128};
+use primitives::{Blake2Hasher, storage::StorageKey, twox_128, ed25519};
 
 pub use service::{Roles, PruningMode, TransactionPoolOptions, ServiceFactory,
 	ErrorKind, Error, ComponentBlock, LightComponents, FullComponents};
@@ -155,6 +155,11 @@ impl service::ServiceFactory for Factory {
 			info!("Using authority key {}", key.public());
 
 			let client = service.client();
+			let alice: AccountId = ed25519::Pair::from_seed(b"Alice                           ").public().0.into();
+			let free_balance = client.call_api_at::<AccountId, u128>(&BlockId::number(0), "free_balance_of", &alice)?;
+			info!("When start, free balance of alice: {}", free_balance);
+			let reserved_balance = client.call_api_at::<AccountId, u128>(&BlockId::number(0), "reserved_balance_of", &alice)?;
+			info!("When start, reserved balance of alice: {}", reserved_balance);
 
 			let consensus_net = ConsensusNetwork::new(service.network(), client.clone());
 			let block_id = BlockId::number(client.info().unwrap().chain.best_number);

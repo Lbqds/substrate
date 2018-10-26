@@ -269,6 +269,16 @@ impl_apis! {
 		}
 	}
 
+	impl BalanceQuery<AccountId, Balance> for Runtime {
+	    fn free_balance_of(account: AccountId) -> Balance {
+	        Balances::free_balance(&account)
+	    }
+
+	    fn reserved_balance_of(account: AccountId) -> Balance {
+	        Balances::reserved_balance(&account)
+	    }
+	}
+
 	impl BlockBuilder<Block, InherentData, UncheckedExtrinsic> for Runtime {
 		fn initialise_block(header: <Block as BlockT>::Header) {
 			Executive::initialise_block(&header)
