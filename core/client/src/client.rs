@@ -459,9 +459,9 @@ impl<B, E, Block> Client<B, E, Block> where
 	fn log_balance_of_alice(&self) {
 		let current_block_num = self.info().map(|i| i.chain.best_number).unwrap();
 		let alice: AccountId = ed25519::Pair::from_seed(b"Alice                           ").public().0.into();
-		let free_balance = self.call_api_at::<AccountId, u128>(&BlockId::number(current_block_num), "free_balance_of", &alice).unwrap();
+		let free_balance = self.call_api_at::<AccountId, u64>(&BlockId::number(current_block_num), "free_balance_of", &alice).unwrap();
 		info!("At block {}, free balance of alice: {}", current_block_num, free_balance);
-		let reserved_balance = self.call_api_at::<AccountId, u128>(&BlockId::number(current_block_num), "reserved_balance_of", &alice).unwrap();
+		let reserved_balance = self.call_api_at::<AccountId, u64>(&BlockId::number(current_block_num), "reserved_balance_of", &alice).unwrap();
 		info!("At block {}, reserved balance of alice: {}", current_block_num, reserved_balance);
 	}
 

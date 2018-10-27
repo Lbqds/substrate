@@ -38,9 +38,9 @@ fn staging_testnet_config_genesis() -> GenesisConfig {
 	let endowed_accounts = vec![
 		hex!["f295940fa750df68a686fcf4abd4111c8a9c5a5a5a83c4c8639c451a94a7adfd"].into(),
 	];
-	const MILLICENTS: u128 = 1_000_000_000;
-	const CENTS: u128 = 1_000 * MILLICENTS;	// assume this is worth about a cent.
-	const DOLLARS: u128 = 100 * CENTS;
+	const MILLICENTS: u64 = 1_000;
+	const CENTS: u64 = 1_000 * MILLICENTS;	// assume this is worth about a cent.
+	const DOLLARS: u64 = 100 * CENTS;
 
 	const SECS_PER_BLOCK: u64 = 5;
 	const MINUTES: u64 = 60 / SECS_PER_BLOCK;
@@ -157,7 +157,7 @@ fn testnet_genesis(initial_authorities: Vec<AuthorityId>) -> GenesisConfig {
 			transfer_fee: 0,
 			creation_fee: 0,
 			reclaim_rebate: 0,
-			balances: endowed_accounts.iter().map(|&k|(k, (1 << 60))).collect(),
+			balances: endowed_accounts.iter().map(|&k|(k, 10000)).collect(),
 		}),
 		session: Some(SessionConfig {
 			validators: initial_authorities.iter().cloned().map(Into::into).collect(),

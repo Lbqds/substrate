@@ -40,11 +40,12 @@ pub type HttpServer = http::Server;
 pub type WsServer = ws::Server;
 
 /// Construct rpc `IoHandler`
-pub fn rpc_handler<Block: BlockT, ExHash, PendingExtrinsics, S, C, A, Y>(
+pub fn rpc_handler<Block: BlockT, ExHash, PendingExtrinsics, S, C, A, Y, B>(
 	state: S,
 	chain: C,
 	author: A,
 	system: Y,
+	balances: B,
 ) -> RpcHandler where
 	Block: BlockT + 'static,
 	ExHash: Send + Sync + 'static + sr_primitives::Serialize + sr_primitives::DeserializeOwned,
@@ -53,12 +54,14 @@ pub fn rpc_handler<Block: BlockT, ExHash, PendingExtrinsics, S, C, A, Y>(
 	C: apis::chain::ChainApi<Block::Hash, Block::Header, NumberFor<Block>, Block::Extrinsic, Metadata=Metadata>,
 	A: apis::author::AuthorApi<ExHash, Block::Hash, Block::Extrinsic, PendingExtrinsics, Metadata=Metadata>,
 	Y: apis::system::SystemApi,
+	B: apis::balances::BalancesApi,
 {
 	let mut io = pubsub::PubSubHandler::default();
 	io.extend_with(state.to_delegate());
 	io.extend_with(chain.to_delegate());
 	io.extend_with(author.to_delegate());
 	io.extend_with(system.to_delegate());
+	io.extend_with(balances.to_delegate());
 	io
 }
 

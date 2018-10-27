@@ -156,9 +156,10 @@ impl service::ServiceFactory for Factory {
 
 			let client = service.client();
 			let alice: AccountId = ed25519::Pair::from_seed(b"Alice                           ").public().0.into();
-			let free_balance = client.call_api_at::<AccountId, u128>(&BlockId::number(0), "free_balance_of", &alice)?;
+			let free_balance = client.call_api_at::<AccountId, u64>(&BlockId::number(0), "free_balance_of", &alice)?;
+			info!("AccountId of alice: {:?}", alice);
 			info!("When start, free balance of alice: {}", free_balance);
-			let reserved_balance = client.call_api_at::<AccountId, u128>(&BlockId::number(0), "reserved_balance_of", &alice)?;
+			let reserved_balance = client.call_api_at::<AccountId, u64>(&BlockId::number(0), "reserved_balance_of", &alice)?;
 			info!("When start, reserved balance of alice: {}", reserved_balance);
 
 			let consensus_net = ConsensusNetwork::new(service.network(), client.clone());

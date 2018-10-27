@@ -238,11 +238,13 @@ impl<Components> Service<Components>
 				let chain = rpc::apis::chain::Chain::new(client.clone(), subscriptions.clone());
 				let state = rpc::apis::state::State::new(client.clone(), subscriptions.clone());
 				let author = rpc::apis::author::Author::new(client.clone(), transaction_pool.clone(), subscriptions.clone());
-				rpc::rpc_handler::<ComponentBlock<Components>, ComponentExHash<Components>, _, _, _, _, _>(
+				let balances = rpc::apis::balances::Balances::new(client.clone());
+				rpc::rpc_handler::<ComponentBlock<Components>, ComponentExHash<Components>, _, _, _, _, _, _>(
 					state,
 					chain,
 					author,
 					rpc_config.clone(),
+					balances,
 				)
 			};
 			(
