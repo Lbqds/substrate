@@ -10,6 +10,8 @@ pwasm-libc/target/
 pwasm-alloc/Cargo.lock
 pwasm-libc/Cargo.lock
 node/runtime/wasm/target/
+**/macro_expand
+**/macro_expand.*
 **/._*
 **/.criterion/
 .vscode
