@@ -70,6 +70,7 @@ members = [
 	"node/runtime",
 	"node/service",
 	"subkey",
+	"tools",
 ]
 exclude = [
 	"node/runtime/wasm",

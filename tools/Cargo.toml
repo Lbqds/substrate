@@ -1,0 +1,20 @@
+[package]
+name = "tools"
+version = "0.1.0"
+authors = ["lbqds@outlook.com"]
+
+[dependencies]
+sr-primitives = { path = "../core/sr-primitives" }
+node-runtime = { path = "../node/runtime" }
+substrate-primitives = { path = "../core/primitives" }
+srml-balances = { path = "../srml/balances" }
+parity-codec = { version = "2.0", default-features = false }
+
+[features]
+default = ["std"]
+std = [
+	"sr-primitives/std",
+	"node-runtime/std",
+	"substrate-primitives/std",
+	"srml-balances/std",
+]
