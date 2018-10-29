@@ -23,6 +23,7 @@ extern crate substrate_bft as bft;
 extern crate substrate_trie as trie;
 extern crate parity_codec as codec;
 extern crate substrate_primitives as primitives;
+extern crate node_primitives;
 extern crate sr_primitives as runtime_primitives;
 extern crate substrate_state_machine as state_machine;
 #[cfg(test)] extern crate substrate_keyring as keyring;

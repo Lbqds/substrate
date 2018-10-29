@@ -60,3 +60,4 @@ pub mod chain;
 pub mod metadata;
 pub mod state;
 pub mod system;
+pub mod balances;

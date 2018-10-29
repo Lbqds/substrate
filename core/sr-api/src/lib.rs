@@ -435,6 +435,11 @@ decl_apis! {
 		fn execute_block(block: Block);
 	}
 
+	pub trait BalanceQuery<AccountId, Balance> {
+	    fn free_balance_of(account: AccountId) -> Balance;
+	    fn reserved_balance_of(account: AccountId) -> Balance;
+	}
+
 	/// The `Metadata` api trait that returns metadata for the runtime.
 	pub trait Metadata {
 		fn metadata() -> Vec<u8>;

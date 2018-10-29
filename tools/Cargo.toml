@@ -6,9 +6,12 @@ authors = ["lbqds@outlook.com"]
 [dependencies]
 sr-primitives = { path = "../core/sr-primitives" }
 node-runtime = { path = "../node/runtime" }
+node-primitives = { path = "../node/primitives" }
 substrate-primitives = { path = "../core/primitives" }
 srml-balances = { path = "../srml/balances" }
 parity-codec = { version = "2.0", default-features = false }
+serde = "1.0"
+serde_json = "1.0"
 
 [features]
 default = ["std"]
@@ -17,4 +20,5 @@ std = [
 	"node-runtime/std",
 	"substrate-primitives/std",
 	"srml-balances/std",
+	"node-primitives/std",
 ]

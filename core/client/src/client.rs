@@ -26,10 +26,11 @@ use runtime_primitives::{
 	generic::{BlockId, SignedBlock, Block as RuntimeBlock},
 	transaction_validity::{TransactionValidity, TransactionTag},
 };
+use node_primitives::AccountId;
 use runtime_primitives::traits::{Block as BlockT, Header as HeaderT, Zero, As, NumberFor, CurrentHeight, BlockNumberToHash};
 use runtime_primitives::{ApplyResult, BuildStorage};
 use runtime_api as api;
-use primitives::{Blake2Hasher, H256, ChangesTrieConfiguration};
+use primitives::{Blake2Hasher, H256, ChangesTrieConfiguration, ed25519};
 use primitives::storage::{StorageKey, StorageData};
 use primitives::storage::well_known_keys;
 use codec::{Encode, Decode};
@@ -270,6 +271,8 @@ impl<B, E, Block> Client<B, E, Block> where
 		})
 	}
 
+
+
 	/// Get a reference to the state at a given block.
 	pub fn state_at(&self, block: &BlockId<Block>) -> error::Result<B::State> {
 		self.backend.state_at(*block)
@@ -453,6 +456,15 @@ impl<B, E, Block> Client<B, E, Block> where
 		self.call_at_state(at, function, args, &mut overlay)
 	}
 
+	fn log_balance_of_alice(&self) {
+		let current_block_num = self.info().map(|i| i.chain.best_number).unwrap();
+		let alice: AccountId = ed25519::Pair::from_seed(b"Alice                           ").public().0.into();
+		let free_balance = self.call_api_at::<AccountId, u64>(&BlockId::number(current_block_num), "free_balance_of", &alice).unwrap();
+		info!("At block {}, free balance of alice: {}", current_block_num, free_balance);
+		let reserved_balance = self.call_api_at::<AccountId, u64>(&BlockId::number(current_block_num), "reserved_balance_of", &alice).unwrap();
+		info!("At block {}, reserved balance of alice: {}", current_block_num, reserved_balance);
+	}
+
 	fn call_at_state<A: Encode, R: Decode>(
 		&self,
 		at: &BlockId<Block>,
@@ -542,6 +554,7 @@ impl<B, E, Block> Client<B, E, Block> where
 			"best" => ?hash,
 			"origin" => ?origin
 		);
+		self.log_balance_of_alice();
 		result
 	}
 

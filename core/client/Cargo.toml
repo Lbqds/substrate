@@ -16,6 +16,7 @@ substrate-bft = { path = "../bft" }
 parity-codec = "2.0"
 substrate-executor = { path = "../executor" }
 substrate-primitives = { path = "../primitives" }
+node-primitives = { path = "../../node/primitives" }
 sr-primitives = { path = "../sr-primitives" }
 sr-api = { path = "../sr-api" }
 substrate-state-machine = { path = "../state-machine" }
