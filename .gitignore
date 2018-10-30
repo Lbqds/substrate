@@ -14,6 +14,7 @@ node/runtime/wasm/target/
 **/macro_expand.*
 **/._*
 **/.criterion/
+.idea
 .vscode
 polkadot.*
 .DS_Store
