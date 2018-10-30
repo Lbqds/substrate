@@ -1,0 +1,50 @@
+[package]
+name = "srml-evm-contract"
+version = "0.1.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+
+[dependencies]
+serde = { version = "1.0", default-features = false }
+serde_derive = { version = "1.0", optional = true }
+parity-codec = { version = "2.0", default-features = false }
+parity-codec-derive = { version = "2.0", default-features = false }
+substrate-primitives = { path = "../../core/primitives", default-features = false }
+sr-primitives = { path = "../../core/sr-primitives", default-features = false }
+sr-io = { path = "../../core/sr-io", default-features = false }
+sr-std = { path = "../../core/sr-std", default-features = false }
+srml-support = { path = "../support", default-features = false }
+srml-system = { path = "../system", default-features = false }
+srml-balances = { path = "../balances", default-features = false }
+bit-set = "0.4"
+parity-bytes = "0.1"
+ethereum-types = "0.4"
+byteorder = "1.0"
+heapsize = "0.4"
+lazy_static = "1.0"
+log = "0.4"
+# vm = { path = "../vm" }
+keccak-hash = "0.1"
+parking_lot = "0.6"
+memory-cache = { path = "../../util/memory-cache" }
+
+[dev-dependencies]
+assert_matches = "1.1"
+rustc-hex = "1.0"
+
+[features]
+default = ["std"]
+std = [
+	"serde_derive",
+	"serde/std",
+	"parity-codec/std",
+	"parity-codec-derive/std",
+	"substrate-primitives/std",
+	"sr-primitives/std",
+	"sr-io/std",
+	"sr-std/std",
+	"srml-balances/std",
+	"srml-support/std",
+	"srml-system/std",
+]
+evm-debug = []
+evm-debug-tests = ["evm-debug"]

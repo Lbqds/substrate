@@ -44,6 +44,7 @@ members = [
 	"srml/contract",
 	"srml/council",
 	"srml/democracy",
+	"srml/evm-contract",
 	"srml/example",
 	"srml/executive",
 	"srml/metadata",
@@ -69,6 +70,7 @@ members = [
 	"node/primitives",
 	"node/runtime",
 	"node/service",
+	"util/memory-cache",
 	"subkey",
 	"tools",
 ]
