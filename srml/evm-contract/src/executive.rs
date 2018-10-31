@@ -21,7 +21,6 @@ use hash::keccak;
 use ethereum_types::{H256, U256, U512};
 use bytes::{Bytes, BytesRef};
 use substate::Substate;
-use machine::EthereumMachine as Machine;
 use evm::{CallType, Finalize, FinalizationResult};
 use vm::{
 	self, EnvInfo, CreateContractAddress, ReturnData, CleanDustMode, ActionParams,
@@ -74,23 +73,21 @@ pub fn into_contract_create_result<AccountId>(result: vm::Result<FinalizationRes
 }
 
 /// Trap result returned by executive.
-pub type ExecutiveTrapResult<'a, T, AccountId> = vm::TrapResult<T, CallCreateExecutive<'a, AccountId>, CallCreateExecutive<'a, AccountId>>;
+pub type ExecutiveTrapResult<'a, T, AccountId: Clone> = vm::TrapResult<T, CallCreateExecutive<'a, AccountId>, CallCreateExecutive<'a, AccountId>>;
 /// Trap error for executive.
-pub type ExecutiveTrapError<'a, AccountId> = vm::TrapError<CallCreateExecutive<'a, AccountId>, CallCreateExecutive<'a, AccountId>>;
+pub type ExecutiveTrapError<'a, AccountId: Clone> = vm::TrapError<CallCreateExecutive<'a, AccountId>, CallCreateExecutive<'a, AccountId>>;
 
-enum CallCreateExecutiveKind<AccountId> {
+enum CallCreateExecutiveKind<AccountId: Clone> {
 	Transfer(ActionParams<AccountId>),
-	CallBuiltin(ActionParams<AccountId>),
 	ExecCall(ActionParams<AccountId>, Substate),
 	ExecCreate(ActionParams<AccountId>, Substate),
-	ResumeCall(OriginInfo, Box<ResumeCall>, Substate),
-	ResumeCreate(OriginInfo, Box<ResumeCreate>, Substate),
+	ResumeCall(OriginInfo<AccountId>, Box<ResumeCall>, Substate),
+	ResumeCreate(OriginInfo<AccountId>, Box<ResumeCreate>, Substate),
 }
 
 /// Executive for a raw call/create action.
-pub struct CallCreateExecutive<'a, AccountId> {
+pub struct CallCreateExecutive<'a, AccountId: Clone> {
 	info: &'a EnvInfo,
-	machine: &'a Machine,
 	schedule: &'a Schedule,
 	factory: &'a VmFactory,
 	depth: usize,
@@ -101,39 +98,28 @@ pub struct CallCreateExecutive<'a, AccountId> {
 	kind: CallCreateExecutiveKind<AccountId>,
 }
 
-impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
+impl<'a, AccountId: Clone> CallCreateExecutive<'a, AccountId> {
 	/// Create a new call executive using raw data.
-	pub fn new_call_raw(params: ActionParams<AccountId>, info: &'a EnvInfo, machine: &'a Machine, schedule: &'a Schedule, factory: &'a VmFactory, depth: usize, stack_depth: usize, parent_static_flag: bool) -> Self {
+	pub fn new_call_raw(params: ActionParams<AccountId>, info: &'a EnvInfo, schedule: &'a Schedule, factory: &'a VmFactory, depth: usize, stack_depth: usize, parent_static_flag: bool) -> Self {
 		trace!("Executive::call(params={:?}) self.env_info={:?}, parent_static={}", params, info, parent_static_flag);
 
 		let gas = params.gas;
 		let static_flag = parent_static_flag || params.call_type == CallType::StaticCall;
 
-		// if destination is builtin, try to execute it
-		let kind = if let Some(builtin) = machine.builtin(&params.code_address, info.number) {
-			// Engines aren't supposed to return builtins until activation, but
-			// prefer to fail rather than silently break consensus.
-			if !builtin.is_active(info.number) {
-				panic!("Consensus failure: engine implementation prematurely enabled built-in at {}", params.code_address);
-			}
-
-			CallCreateExecutiveKind::CallBuiltin(params)
+		if params.code.is_some() {
+			CallCreateExecutiveKind::ExecCall(params, Substate::new())
 		} else {
-			if params.code.is_some() {
-				CallCreateExecutiveKind::ExecCall(params, Substate::new())
-			} else {
-				CallCreateExecutiveKind::Transfer(params)
-			}
-		};
+			CallCreateExecutiveKind::Transfer(params)
+		}
 
 		Self {
-			info, machine, schedule, factory, depth, stack_depth, static_flag, kind, gas,
+			info, schedule, factory, depth, stack_depth, static_flag, kind, gas,
 			is_create: false,
 		}
 	}
 
 	/// Create a new create executive using raw data.
-	pub fn new_create_raw(params: ActionParams<AccountId>, info: &'a EnvInfo, machine: &'a Machine, schedule: &'a Schedule, factory: &'a VmFactory, depth: usize, stack_depth: usize, static_flag: bool) -> Self {
+	pub fn new_create_raw(params: ActionParams<AccountId>, info: &'a EnvInfo, schedule: &'a Schedule, factory: &'a VmFactory, depth: usize, stack_depth: usize, static_flag: bool) -> Self {
 		trace!("Executive::create(params={:?}) self.env_info={:?}, static={}", params, info, static_flag);
 
 		let gas = params.gas;
@@ -141,7 +127,7 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 		let kind = CallCreateExecutiveKind::ExecCreate(params, Substate::new());
 
 		Self {
-			info, machine, schedule, factory, depth, stack_depth, static_flag, kind, gas,
+			info, schedule, factory, depth, stack_depth, static_flag, kind, gas,
 			is_create: true,
 		}
 	}
@@ -226,28 +212,25 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 	}
 
 	/// Creates `Externalities` from `Executive`.
-	fn as_externalities<'any, B: 'any + StateBackend, T, V>(
+	fn as_externalities<'any, B: 'any + StateBackend>(
 		state: &'any mut State<B>,
 		info: &'any EnvInfo,
-		machine: &'any Machine,
 		schedule: &'any Schedule,
 		depth: usize,
 		stack_depth: usize,
 		static_flag: bool,
-		origin_info: &'any OriginInfo,
+		origin_info: &'any OriginInfo<AccountId>,
 		substate: &'any mut Substate,
 		output: OutputPolicy,
-		tracer: &'any mut T,
-		vm_tracer: &'any mut V,
-	) -> Externalities<'any, B> where T: Tracer, V: VMTracer {
-		Externalities::new(state, info, machine, schedule, depth, stack_depth, origin_info, substate, output, static_flag)
+	) -> Externalities<'any, B, AccountId> where T: Tracer, V: VMTracer {
+		Externalities::new(state, info, schedule, depth, stack_depth, origin_info, substate, output, static_flag)
 	}
 
 	/// Execute the executive. If a sub-call/create action is required, a resume trap error is returned. The caller is
 	/// then expected to call `resume_call` or `resume_create` to continue the execution.
 	///
 	/// Current-level tracing is expected to be handled by caller.
-	pub fn exec<B: 'a + StateBackend, T: Tracer, V: VMTracer>(mut self, state: &mut State<B>, substate: &mut Substate, tracer: &mut T, vm_tracer: &mut V) -> ExecutiveTrapResult<'a, FinalizationResult, AccountId> {
+	pub fn exec<B: 'a + StateBackend>(mut self, state: &mut State<B>, substate: &mut Substate) -> ExecutiveTrapResult<'a, FinalizationResult, AccountId> {
 		match self.kind {
 			CallCreateExecutiveKind::Transfer(ref params) => {
 				assert!(!self.is_create);
@@ -261,50 +244,6 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 						return_data: ReturnData::empty(),
 						apply_state: true,
 					})
-				};
-
-				Ok(inner())
-			},
-			CallCreateExecutiveKind::CallBuiltin(ref params) => {
-				assert!(!self.is_create);
-
-				let mut inner = || {
-					let builtin = self.machine.builtin(&params.code_address, self.info.number).expect("Builtin is_some is checked when creating this kind in new_call_raw; qed");
-
-					Self::check_static_flag(&params, self.static_flag, self.is_create)?;
-					state.checkpoint();
-					Self::transfer_exec_balance(&params, self.schedule, state, substate)?;
-
-					let default = [];
-					let data = if let Some(ref d) = params.data { d as &[u8] } else { &default as &[u8] };
-
-					let cost = builtin.cost(data);
-					if cost <= params.gas {
-						let mut builtin_out_buffer = Vec::new();
-						let result = {
-							let mut builtin_output = BytesRef::Flexible(&mut builtin_out_buffer);
-							builtin.execute(data, &mut builtin_output)
-						};
-						if let Err(e) = result {
-							state.revert_to_checkpoint();
-
-							Err(e.into())
-						} else {
-							state.discard_checkpoint();
-
-							let out_len = builtin_out_buffer.len();
-							Ok(FinalizationResult {
-								gas_left: params.gas - cost,
-								return_data: ReturnData::new(builtin_out_buffer, 0, out_len),
-								apply_state: true,
-							})
-						}
-					} else {
-						// just drain the whole gas
-						state.revert_to_checkpoint();
-
-						Err(vm::Error::OutOfGas)
-					}
 				};
 
 				Ok(inner())
@@ -334,7 +273,7 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 				let exec = self.factory.create(params, self.schedule, self.depth);
 
 				let out = {
-					let mut ext = Self::as_externalities(state, self.info, self.machine, self.schedule, self.depth, self.stack_depth, self.static_flag, &origin_info, &mut unconfirmed_substate, OutputPolicy::Return, tracer, vm_tracer);
+					let mut ext = Self::as_externalities(state, self.info, self.schedule, self.depth, self.stack_depth, self.static_flag, &origin_info, &mut unconfirmed_substate, OutputPolicy::Return);
 					match exec.exec(&mut ext) {
 						Ok(val) => Ok(val.finalize(ext)),
 						Err(err) => Err(err),
@@ -382,7 +321,7 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 				let exec = self.factory.create(params, self.schedule, self.depth);
 
 				let out = {
-					let mut ext = Self::as_externalities(state, self.info, self.machine, self.schedule, self.depth, self.stack_depth, self.static_flag, &origin_info, &mut unconfirmed_substate, OutputPolicy::InitContract, tracer, vm_tracer);
+					let mut ext = Self::as_externalities(state, self.info, self.schedule, self.depth, self.stack_depth, self.static_flag, &origin_info, &mut unconfirmed_substate, OutputPolicy::InitContract);
 					match exec.exec(&mut ext) {
 						Ok(val) => Ok(val.finalize(ext)),
 						Err(err) => Err(err),
@@ -411,13 +350,13 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 	/// Resume execution from a call trap previsouly trapped by `exec`.
 	///
 	/// Current-level tracing is expected to be handled by caller.
-	pub fn resume_call<B: 'a + StateBackend, T: Tracer, V: VMTracer>(mut self, result: vm::MessageCallResult, state: &mut State<B>, substate: &mut Substate, tracer: &mut T, vm_tracer: &mut V) -> ExecutiveTrapResult<'a, FinalizationResult, AccountId> {
+	pub fn resume_call<B: 'a + StateBackend>(mut self, result: vm::MessageCallResult, state: &mut State<B>, substate: &mut Substate) -> ExecutiveTrapResult<'a, FinalizationResult, AccountId> {
 		match self.kind {
 			CallCreateExecutiveKind::ResumeCall(origin_info, resume, mut unconfirmed_substate) => {
 				let out = {
 					let exec = resume.resume_call(result);
 
-					let mut ext = Self::as_externalities(state, self.info, self.machine, self.schedule, self.depth, self.stack_depth, self.static_flag, &origin_info, &mut unconfirmed_substate, if self.is_create { OutputPolicy::InitContract } else { OutputPolicy::Return }, tracer, vm_tracer);
+					let mut ext = Self::as_externalities(state, self.info, self.schedule, self.depth, self.stack_depth, self.static_flag, &origin_info, &mut unconfirmed_substate, if self.is_create { OutputPolicy::InitContract } else { OutputPolicy::Return });
 					match exec.exec(&mut ext) {
 						Ok(val) => Ok(val.finalize(ext)),
 						Err(err) => Err(err),
@@ -450,13 +389,13 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 	/// Resume execution from a create trap previsouly trapped by `exec`.
 	///
 	/// Current-level tracing is expected to be handled by caller.
-	pub fn resume_create<B: 'a + StateBackend, T: Tracer, V: VMTracer>(mut self, result: vm::ContractCreateResult, state: &mut State<B>, substate: &mut Substate, tracer: &mut T, vm_tracer: &mut V) -> ExecutiveTrapResult<'a, FinalizationResult, AccountId> {
+	pub fn resume_create<B: 'a + StateBackend>(mut self, result: vm::ContractCreateResult, state: &mut State<B>, substate: &mut Substate) -> ExecutiveTrapResult<'a, FinalizationResult, AccountId> {
 		match self.kind {
 			CallCreateExecutiveKind::ResumeCreate(origin_info, resume, mut unconfirmed_substate) => {
 				let out = {
 					let exec = resume.resume_create(result);
 
-					let mut ext = Self::as_externalities(state, self.info, self.machine, self.schedule, self.depth, self.stack_depth, self.static_flag, &origin_info, &mut unconfirmed_substate, if self.is_create { OutputPolicy::InitContract } else { OutputPolicy::Return }, tracer, vm_tracer);
+					let mut ext = Self::as_externalities(state, self.info, self.schedule, self.depth, self.stack_depth, self.static_flag, &origin_info, &mut unconfirmed_substate, if self.is_create { OutputPolicy::InitContract } else { OutputPolicy::Return });
 					match exec.exec(&mut ext) {
 						Ok(val) => Ok(val.finalize(ext)),
 						Err(err) => Err(err),
@@ -487,8 +426,8 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 	}
 
 	/// Execute and consume the current executive. This function handles resume traps and sub-level tracing. The caller is expected to handle current-level tracing.
-	pub fn consume<B: 'a + StateBackend, T: Tracer, V: VMTracer>(self, state: &mut State<B>, top_substate: &mut Substate, tracer: &mut T, vm_tracer: &mut V) -> vm::Result<FinalizationResult> {
-		let mut last_res = Some((false, self.gas, self.exec(state, top_substate, tracer, vm_tracer)));
+	pub fn consume<B: 'a + StateBackend>(self, state: &mut State<B>, top_substate: &mut Substate) -> vm::Result<FinalizationResult> {
+		let mut last_res = Some((false, self.gas, self.exec(state, top_substate)));
 
 		let mut callstack: Vec<(Option<AccountId>, CallCreateExecutive<'a, AccountId>)> = Vec::new();
 		loop {
@@ -502,7 +441,7 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 								None => top_substate,
 							};
 
-							last_res = Some((exec.is_create, exec.gas, exec.exec(state, parent_substate, tracer, vm_tracer)));
+							last_res = Some((exec.is_create, exec.gas, exec.exec(state, parent_substate)));
 						},
 						None => panic!("When callstack only had one item and it was executed, this function would return; callstack never reaches zero item; qed"),
 					}
@@ -514,25 +453,6 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 						Some((address, mut exec)) => {
 							if is_create {
 								let address = address.expect("If the last executed status was from a create executive, then the destination address was pushed to the callstack; address is_some if it is_create; qed");
-
-								match val {
-									Ok(ref val) if val.apply_state => {
-										tracer.done_trace_create(
-											gas - val.gas_left,
-											&val.return_data,
-											address
-										);
-									},
-									Ok(_) => {
-										tracer.done_trace_failed(&vm::Error::Reverted);
-									},
-									Err(ref err) => {
-										tracer.done_trace_failed(err);
-									},
-								}
-
-								vm_tracer.done_subtrace();
-
 								let second_last = callstack.last_mut();
 								let parent_substate = match second_last {
 									Some((_, ref mut second_last)) => second_last.unconfirmed_substate().expect("Current stack value is created from second last item; second last item must be call or create; qed"),
@@ -543,28 +463,9 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 								last_res = Some((exec.is_create, exec.gas, exec.resume_create(
 									contract_create_result,
 									state,
-									parent_substate,
-									tracer,
-									vm_tracer
+									parent_substate
 								)));
 							} else {
-								match val {
-									Ok(ref val) if val.apply_state => {
-										tracer.done_trace_call(
-											gas - val.gas_left,
-											&val.return_data,
-										);
-									},
-									Ok(_) => {
-										tracer.done_trace_failed(&vm::Error::Reverted);
-									},
-									Err(ref err) => {
-										tracer.done_trace_failed(err);
-									},
-								}
-
-								vm_tracer.done_subtrace();
-
 								let second_last = callstack.last_mut();
 								let parent_substate = match second_last {
 									Some((_, ref mut second_last)) => second_last.unconfirmed_substate().expect("Current stack value is created from second last item; second last item must be call or create; qed"),
@@ -574,9 +475,7 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 								last_res = Some((exec.is_create, exec.gas, exec.resume_call(
 									into_message_call_result(val),
 									state,
-									parent_substate,
-									tracer,
-									vm_tracer
+									parent_substate
 								)));
 							}
 						},
@@ -584,13 +483,9 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 					}
 				},
 				Some((_, _, Err(TrapError::Call(subparams, resume)))) => {
-					tracer.prepare_trace_call(&subparams, resume.depth + 1, resume.machine.builtin(&subparams.address, resume.info.number).is_some());
-					vm_tracer.prepare_subtrace(subparams.code.as_ref().map_or_else(|| &[] as &[u8], |d| &*d as &[u8]));
-
 					let sub_exec = CallCreateExecutive::new_call_raw(
 						subparams,
 						resume.info,
-						resume.machine,
 						resume.schedule,
 						resume.factory,
 						resume.depth + 1,
@@ -603,13 +498,9 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 					last_res = None;
 				},
 				Some((_, _, Err(TrapError::Create(subparams, address, resume)))) => {
-					tracer.prepare_trace_create(&subparams);
-					vm_tracer.prepare_subtrace(subparams.code.as_ref().map_or_else(|| &[] as &[u8], |d| &*d as &[u8]));
-
 					let sub_exec = CallCreateExecutive::new_create_raw(
 						subparams,
 						resume.info,
-						resume.machine,
 						resume.schedule,
 						resume.factory,
 						resume.depth + 1,
@@ -630,7 +521,6 @@ impl<'a, AccountId> CallCreateExecutive<'a, AccountId> {
 pub struct Executive<'a, B: 'a> {
 	state: &'a mut State<B>,
 	info: &'a EnvInfo,
-	machine: &'a Machine,
 	schedule: &'a Schedule,
 	depth: usize,
 	static_flag: bool,
@@ -638,11 +528,10 @@ pub struct Executive<'a, B: 'a> {
 
 impl<'a, B: 'a + StateBackend> Executive<'a, B> {
 	/// Basic constructor.
-	pub fn new(state: &'a mut State<B>, info: &'a EnvInfo, machine: &'a Machine, schedule: &'a Schedule) -> Self {
+	pub fn new(state: &'a mut State<B>, info: &'a EnvInfo, schedule: &'a Schedule) -> Self {
 		Executive {
 			state: state,
 			info: info,
-			machine: machine,
 			schedule: schedule,
 			depth: 0,
 			static_flag: false,
@@ -650,11 +539,10 @@ impl<'a, B: 'a + StateBackend> Executive<'a, B> {
 	}
 
 	/// Populates executive from parent properties. Increments executive depth.
-	pub fn from_parent(state: &'a mut State<B>, info: &'a EnvInfo, machine: &'a Machine, schedule: &'a Schedule, parent_depth: usize, static_flag: bool) -> Self {
+	pub fn from_parent(state: &'a mut State<B>, info: &'a EnvInfo, schedule: &'a Schedule, parent_depth: usize, static_flag: bool) -> Self {
 		Executive {
 			state: state,
 			info: info,
-			machine: machine,
 			schedule: schedule,
 			depth: parent_depth + 1,
 			static_flag: static_flag,
@@ -714,8 +602,6 @@ impl<'a, B: 'a + StateBackend> Executive<'a, B> {
 
 		let (result, output) = match t.action {
 			Action::Create => {
-				// TODO: contract_address_for
-				let (new_address, code_hash) = contract_address(self.machine.create_address_scheme(self.info.number), &sender, &nonce, &t.data);
 				let params = ActionParams {
 					code_address: new_address.clone(),
 					code_hash: code_hash,
@@ -730,7 +616,7 @@ impl<'a, B: 'a + StateBackend> Executive<'a, B> {
 					call_type: CallType::None,
 					params_type: vm::ParamsType::Embedded,
 				};
-				let res = self.create(params, &mut substate, &mut tracer, &mut vm_tracer);
+				let res = self.create(params, &mut substate);
 				let out = match &res {
 					Ok(res) if output_from_create => res.return_data.to_vec(),
 					_ => Vec::new(),
@@ -752,7 +638,7 @@ impl<'a, B: 'a + StateBackend> Executive<'a, B> {
 					call_type: CallType::Call,
 					params_type: vm::ParamsType::Separate,
 				};
-				let res = self.call(params, &mut substate, &mut tracer, &mut vm_tracer);
+				let res = self.call(params, &mut substate);
 				let out = match &res {
 					Ok(res) => res.return_data.to_vec(),
 					_ => Vec::new(),
@@ -762,160 +648,105 @@ impl<'a, B: 'a + StateBackend> Executive<'a, B> {
 		};
 
 		// finalize here!
-		Ok(self.finalize(t, substate, result, output, tracer.drain(), vm_tracer.drain())?)
+		Ok(self.finalize(t, substate, result, output)?)
 	}
 
 	/// Calls contract function with given contract params and stack depth.
 	/// NOTE. It does not finalize the transaction (doesn't do refunds, nor suicides).
 	/// Modifies the substate and the output.
 	/// Returns either gas_left or `vm::Error`.
-	pub fn call_with_stack_depth<T, V>(
+	pub fn call_with_stack_depth(
 		&mut self,
-		params: ActionParams,
+		params: ActionParams<AccountId>,
 		substate: &mut Substate,
 		stack_depth: usize,
-		tracer: &mut T,
-		vm_tracer: &mut V
-	) -> vm::Result<FinalizationResult> where T: Tracer, V: VMTracer {
-		tracer.prepare_trace_call(&params, self.depth, self.machine.builtin(&params.address, self.info.number).is_some());
-		vm_tracer.prepare_subtrace(params.code.as_ref().map_or_else(|| &[] as &[u8], |d| &*d as &[u8]));
-
+	) -> vm::Result<FinalizationResult> {
 		let gas = params.gas;
 
 		let vm_factory = self.state.vm_factory();
 		let result = CallCreateExecutive::new_call_raw(
 			params,
 			self.info,
-			self.machine,
 			self.schedule,
 			&vm_factory,
 			self.depth,
 			stack_depth,
 			self.static_flag
-		).consume(self.state, substate, tracer, vm_tracer);
-
-		match result {
-			Ok(ref val) if val.apply_state => {
-				tracer.done_trace_call(
-					gas - val.gas_left,
-					&val.return_data,
-				);
-			},
-			Ok(_) => {
-				tracer.done_trace_failed(&vm::Error::Reverted);
-			},
-			Err(ref err) => {
-				tracer.done_trace_failed(err);
-			},
-		}
-		vm_tracer.done_subtrace();
-
-		result
+		).consume(self.state, substate)
 	}
 
 	/// Calls contract function with given contract params, if the stack depth is above a threshold, create a new thread
 	/// to execute it.
-	pub fn call_with_crossbeam<T, V>(
+	pub fn call_with_crossbeam(
 		&mut self,
 		params: ActionParams<AccountId>,
 		substate: &mut Substate,
 		stack_depth: usize,
-		tracer: &mut T,
-		vm_tracer: &mut V
-	) -> vm::Result<FinalizationResult> where T: Tracer, V: VMTracer {
+	) -> vm::Result<FinalizationResult> {
 		let local_stack_size = ::io::LOCAL_STACK_SIZE.with(|sz| sz.get());
 		let depth_threshold = local_stack_size.saturating_sub(STACK_SIZE_ENTRY_OVERHEAD) / STACK_SIZE_PER_DEPTH;
 
 		if stack_depth != depth_threshold {
-			self.call_with_stack_depth(params, substate, stack_depth, tracer, vm_tracer)
+			self.call_with_stack_depth(params, substate, stack_depth)
 		} else {
 			crossbeam::scope(|scope| {
 				scope.builder().stack_size(::std::cmp::max(self.schedule.max_depth.saturating_sub(depth_threshold) * STACK_SIZE_PER_DEPTH, local_stack_size)).spawn(move || {
-					self.call_with_stack_depth(params, substate, stack_depth, tracer, vm_tracer)
+					self.call_with_stack_depth(params, substate, stack_depth)
 				}).expect("Sub-thread creation cannot fail; the host might run out of resources; qed")
 			}).join()
 		}
 	}
 
 	/// Calls contract function with given contract params.
-	pub fn call<T, V>(
+	pub fn call(
 		&mut self,
 		params: ActionParams<AccountId>,
 		substate: &mut Substate,
-		tracer: &mut T,
-		vm_tracer: &mut V
-	) -> vm::Result<FinalizationResult> where T: Tracer, V: VMTracer {
-		self.call_with_stack_depth(params, substate, 0, tracer, vm_tracer)
+	) -> vm::Result<FinalizationResult> {
+		self.call_with_stack_depth(params, substate, 0)
 	}
 
 	/// Creates contract with given contract params and stack depth.
 	/// NOTE. It does not finalize the transaction (doesn't do refunds, nor suicides).
 	/// Modifies the substate.
-	pub fn create_with_stack_depth<T, V>(
+	pub fn create_with_stack_depth(
 		&mut self,
 		params: ActionParams<AccountId>,
 		substate: &mut Substate,
 		stack_depth: usize,
-		tracer: &mut T,
-		vm_tracer: &mut V,
-	) -> vm::Result<FinalizationResult> where T: Tracer, V: VMTracer {
-		tracer.prepare_trace_create(&params);
-		vm_tracer.prepare_subtrace(params.code.as_ref().map_or_else(|| &[] as &[u8], |d| &*d as &[u8]));
-
+	) -> vm::Result<FinalizationResult> {
 		let address = params.address;
 		let gas = params.gas;
 
 		let vm_factory = self.state.vm_factory();
-		let result = CallCreateExecutive::new_create_raw(
+		CallCreateExecutive::new_create_raw(
 			params,
 			self.info,
-			self.machine,
 			self.schedule,
 			&vm_factory,
 			self.depth,
 			stack_depth,
 			self.static_flag
-		).consume(self.state, substate, tracer, vm_tracer);
-
-		match result {
-			Ok(ref val) if val.apply_state => {
-				tracer.done_trace_create(
-					gas - val.gas_left,
-					&val.return_data,
-					address,
-				);
-			},
-			Ok(_) => {
-				tracer.done_trace_failed(&vm::Error::Reverted);
-			},
-			Err(ref err) => {
-				tracer.done_trace_failed(err);
-			},
-		}
-		vm_tracer.done_subtrace();
-
-		result
+		).consume(self.state, substate)
 	}
 
 	/// Creates contract with given contract params, if the stack depth is above a threshold, create a new thread to
 	/// execute it.
-	pub fn create_with_crossbeam<T, V>(
+	pub fn create_with_crossbeam(
 		&mut self,
 		params: ActionParams<AccountId>,
 		substate: &mut Substate,
 		stack_depth: usize,
-		tracer: &mut T,
-		vm_tracer: &mut V,
-	) -> vm::Result<FinalizationResult> where T: Tracer, V: VMTracer {
+	) -> vm::Result<FinalizationResult> where {
 		let local_stack_size = ::io::LOCAL_STACK_SIZE.with(|sz| sz.get());
 		let depth_threshold = local_stack_size.saturating_sub(STACK_SIZE_ENTRY_OVERHEAD) / STACK_SIZE_PER_DEPTH;
 
 		if stack_depth != depth_threshold {
-			self.create_with_stack_depth(params, substate, stack_depth, tracer, vm_tracer)
+			self.create_with_stack_depth(params, substate, stack_depth)
 		} else {
 			crossbeam::scope(|scope| {
 				scope.builder().stack_size(::std::cmp::max(self.schedule.max_depth.saturating_sub(depth_threshold) * STACK_SIZE_PER_DEPTH, local_stack_size)).spawn(move || {
-					self.create_with_stack_depth(params, substate, stack_depth, tracer, vm_tracer)
+					self.create_with_stack_depth(params, substate, stack_depth)
 				}).expect("Sub-thread creation cannot fail; the host might run out of resources; qed")
 			}).join()
 		}
@@ -927,7 +758,7 @@ impl<'a, B: 'a + StateBackend> Executive<'a, B> {
 		params: ActionParams<AccountId>,
 		substate: &mut Substate,
 	) -> vm::Result<FinalizationResult> {
-		self.create_with_stack_depth(params, substate, 0, tracer, vm_tracer)
+		self.create_with_stack_depth(params, substate, 0)
 	}
 
 	/// Finalizes the transaction (does refunds and suicides).

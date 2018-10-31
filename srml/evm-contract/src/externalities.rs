@@ -19,14 +19,13 @@ use std::cmp;
 use std::sync::Arc;
 use ethereum_types::{H256, U256, Address};
 use bytes::Bytes;
-use state::{Backend as StateBackend, State, Substate, CleanupMode};
-use machine::EthereumMachine as Machine;
 use executive::*;
 use vm::{
 	self, ActionParams, ActionValue, EnvInfo, CallType, Schedule,
 	Ext, ContractCreateResult, MessageCallResult, CreateContractAddress,
 	ReturnData, TrapKind
 };
+use substate::Substate;
 use transaction::UNSIGNED_SENDER;
 use trace::{Tracer, VMTracer};
 
@@ -40,16 +39,16 @@ pub enum OutputPolicy {
 }
 
 /// Transaction properties that externalities need to know about.
-pub struct OriginInfo {
-	address: Address,
-	origin: Address,
+pub struct OriginInfo<AccountId: Clone> {
+	address: AccountId,
+	origin: AccountId,
 	gas_price: U256,
 	value: U256,
 }
 
-impl OriginInfo {
+impl<AccountId: Clone> OriginInfo<AccountId> {
 	/// Populates origin info from action params.
-	pub fn from(params: &ActionParams) -> Self {
+	pub fn from(params: &ActionParams<AccountId>) -> Self {
 		OriginInfo {
 			address: params.address.clone(),
 			origin: params.origin.clone(),
@@ -62,31 +61,29 @@ impl OriginInfo {
 }
 
 /// Implementation of evm Externalities.
-pub struct Externalities<'a, B: 'a> {
+pub struct Externalities<'a, B: 'a, AccountId: Clone> {
 	state: &'a mut State<B>,
 	env_info: &'a EnvInfo,
 	depth: usize,
 	stack_depth: usize,
-	origin_info: &'a OriginInfo,
+	origin_info: &'a OriginInfo<AccountId>,
 	substate: &'a mut Substate,
-	machine: &'a Machine,
 	schedule: &'a Schedule,
 	output: OutputPolicy,
 	static_flag: bool,
 }
 
-impl<'a, B: 'a> Externalities<'a, B>
-	where B: StateBackend
+impl<'a, B: 'a, AccountId> Externalities<'a, B, AccountId>
+	where B: StateBackend, AccountId: Clone
 {
 	/// Basic `Externalities` constructor.
 	pub fn new(
 		state: &'a mut State<B>,
 		env_info: &'a EnvInfo,
-		machine: &'a Machine,
 		schedule: &'a Schedule,
 		depth: usize,
 		stack_depth: usize,
-		origin_info: &'a OriginInfo,
+		origin_info: &'a OriginInfo<AccountId>,
 		substate: &'a mut Substate,
 		output: OutputPolicy,
 		static_flag: bool,
@@ -98,7 +95,6 @@ impl<'a, B: 'a> Externalities<'a, B>
 			stack_depth: stack_depth,
 			origin_info: origin_info,
 			substate: substate,
-			machine: machine,
 			schedule: schedule,
 			output: output,
 			static_flag: static_flag,
@@ -106,8 +102,8 @@ impl<'a, B: 'a> Externalities<'a, B>
 	}
 }
 
-impl<'a, B: 'a> Ext for Externalities<'a, B>
-	where B: StateBackend
+impl<'a, B: 'a, AccountId> Ext for Externalities<'a, B, AccountId>
+	where B: StateBackend, AccountId: Clone
 {
 	fn initial_storage_at(&self, key: &H256) -> vm::Result<H256> {
 		self.state.checkpoint_storage_at(0, &self.origin_info.address, key).map(|v| v.unwrap_or(H256::zero())).map_err(Into::into)
@@ -129,11 +125,11 @@ impl<'a, B: 'a> Ext for Externalities<'a, B>
 		return self.static_flag
 	}
 
-	fn exists(&self, address: &Address) -> vm::Result<bool> {
+	fn exists(&self, address: &AccountId) -> vm::Result<bool> {
 		self.state.exists(address).map_err(Into::into)
 	}
 
-	fn exists_and_not_null(&self, address: &Address) -> vm::Result<bool> {
+	fn exists_and_not_null(&self, address: &AccountId) -> vm::Result<bool> {
 		self.state.exists_and_not_null(address).map_err(Into::into)
 	}
 
@@ -141,60 +137,12 @@ impl<'a, B: 'a> Ext for Externalities<'a, B>
 		self.balance(&self.origin_info.address).map_err(Into::into)
 	}
 
-	fn balance(&self, address: &Address) -> vm::Result<U256> {
+	fn balance(&self, address: &AccountId) -> vm::Result<U256> {
 		self.state.balance(address).map_err(Into::into)
 	}
 
 	fn blockhash(&mut self, number: &U256) -> H256 {
-		if self.env_info.number + 256 >= self.machine.params().eip210_transition {
-			let blockhash_contract_address = self.machine.params().eip210_contract_address;
-			let code_res = self.state.code(&blockhash_contract_address)
-				.and_then(|code| self.state.code_hash(&blockhash_contract_address).map(|hash| (code, hash)));
-
-			let (code, code_hash) = match code_res {
-				Ok((code, hash)) => (code, hash),
-				Err(_) => return H256::zero(),
-			};
-
-			let params = ActionParams {
-				sender: self.origin_info.address.clone(),
-				address: blockhash_contract_address.clone(),
-				value: ActionValue::Apparent(self.origin_info.value),
-				code_address: blockhash_contract_address.clone(),
-				origin: self.origin_info.origin.clone(),
-				gas: self.machine.params().eip210_contract_gas,
-				gas_price: 0.into(),
-				code: code,
-				code_hash: code_hash,
-				data: Some(H256::from(number).to_vec()),
-				call_type: CallType::Call,
-				params_type: vm::ParamsType::Separate,
-			};
-
-			let mut ex = Executive::new(self.state, self.env_info, self.machine, self.schedule);
-			let r = ex.call_with_crossbeam(params, self.substate, self.stack_depth + 1, self.tracer, self.vm_tracer);
-			let output = match &r {
-				Ok(ref r) => H256::from(&r.return_data[..32]),
-				_ => H256::new(),
-			};
-			trace!("ext: blockhash contract({}) -> {:?}({}) self.env_info.number={}\n", number, r, output, self.env_info.number);
-			output
-		} else {
-			// TODO: comment out what this function expects from env_info, since it will produce panics if the latter is inconsistent
-			match *number < U256::from(self.env_info.number) && number.low_u64() >= cmp::max(256, self.env_info.number) - 256 {
-				true => {
-					let index = self.env_info.number - number.low_u64() - 1;
-					assert!(index < self.env_info.last_hashes.len() as u64, format!("Inconsistent env_info, should contain at least {:?} last hashes", index+1));
-					let r = self.env_info.last_hashes[index as usize].clone();
-					trace!("ext: blockhash({}) -> {} self.env_info.number={}\n", number, r, self.env_info.number);
-					r
-				},
-				false => {
-					trace!("ext: blockhash({}) -> null self.env_info.number={}\n", number, self.env_info.number);
-					H256::zero()
-				},
-			}
-		}
+		unimplemented!()
 	}
 
 	fn create(
@@ -244,19 +192,19 @@ impl<'a, B: 'a> Ext for Externalities<'a, B>
 		}
 
 		// TODO: handle internal error separately
-		let mut ex = Executive::from_parent(self.state, self.env_info, self.machine, self.schedule, self.depth, self.static_flag);
-		let out = ex.create_with_crossbeam(params, self.substate, self.stack_depth + 1, self.tracer, self.vm_tracer);
+		let mut ex = Executive::from_parent(self.state, self.env_info, self.schedule, self.depth, self.static_flag);
+		let out = ex.create_with_crossbeam(params, self.substate, self.stack_depth + 1);
 		Ok(into_contract_create_result(out, &address, self.substate))
 	}
 
 	fn call(
 		&mut self,
 		gas: &U256,
-		sender_address: &Address,
-		receive_address: &Address,
+		sender_address: &AccountId,
+		receive_address: &AccountId,
 		value: Option<U256>,
 		data: &[u8],
-		code_address: &Address,
+		code_address: &AccountId,
 		call_type: CallType,
 		trap: bool,
 	) -> ::std::result::Result<MessageCallResult, TrapKind> {
@@ -293,20 +241,20 @@ impl<'a, B: 'a> Ext for Externalities<'a, B>
 			return Err(TrapKind::Call(params));
 		}
 
-		let mut ex = Executive::from_parent(self.state, self.env_info, self.machine, self.schedule, self.depth, self.static_flag);
-		let out = ex.call_with_crossbeam(params, self.substate, self.stack_depth + 1, self.tracer, self.vm_tracer);
+		let mut ex = Executive::from_parent(self.state, self.env_info, self.schedule, self.depth, self.static_flag);
+		let out = ex.call_with_crossbeam(params, self.substate, self.stack_depth + 1);
 		Ok(into_message_call_result(out))
 	}
 
-	fn extcode(&self, address: &Address) -> vm::Result<Option<Arc<Bytes>>> {
+	fn extcode(&self, address: &AccountId) -> vm::Result<Option<Arc<Bytes>>> {
 		Ok(self.state.code(address)?)
 	}
 
-	fn extcodehash(&self, address: &Address) -> vm::Result<Option<H256>> {
+	fn extcodehash(&self, address: &AccountId) -> vm::Result<Option<H256>> {
 		Ok(self.state.code_hash(address)?)
 	}
 
-	fn extcodesize(&self, address: &Address) -> vm::Result<Option<usize>> {
+	fn extcodesize(&self, address: &AccountId) -> vm::Result<Option<usize>> {
 		Ok(self.state.code_size(address)?)
 	}
 
@@ -350,7 +298,7 @@ impl<'a, B: 'a> Ext for Externalities<'a, B>
 		Ok(())
 	}
 
-	fn suicide(&mut self, refund_address: &Address) -> vm::Result<()> {
+	fn suicide(&mut self, refund_address: &AccountId) -> vm::Result<()> {
 		if self.static_flag {
 			return Err(vm::Error::MutableCallInStaticContext);
 		}
@@ -370,7 +318,6 @@ impl<'a, B: 'a> Ext for Externalities<'a, B>
 			)?;
 		}
 
-		self.tracer.trace_suicide(address, balance, refund_address.clone());
 		self.substate.suicides.insert(address);
 
 		Ok(())
@@ -395,20 +342,9 @@ impl<'a, B: 'a> Ext for Externalities<'a, B>
 	fn sub_sstore_refund(&mut self, value: usize) {
 		self.substate.sstore_clears_refund -= value as i128;
 	}
-
-	fn trace_next_instruction(&mut self, pc: usize, instruction: u8, current_gas: U256) -> bool {
-		self.vm_tracer.trace_next_instruction(pc, instruction, current_gas)
-	}
-
-	fn trace_prepare_execute(&mut self, pc: usize, instruction: u8, gas_cost: U256, mem_written: Option<(usize, usize)>, store_written: Option<(U256, U256)>) {
-		self.vm_tracer.trace_prepare_execute(pc, instruction, gas_cost, mem_written, store_written)
-	}
-
-	fn trace_executed(&mut self, gas_used: U256, stack_push: &[U256], mem: &[u8]) {
-		self.vm_tracer.trace_executed(gas_used, stack_push, mem)
-	}
 }
 
+/*
 #[cfg(test)]
 mod tests {
 	use ethereum_types::{U256, Address};
@@ -609,3 +545,4 @@ mod tests {
 		assert_eq!(address, Address::from_str("e33c0c7f7df4809055c3eba6c09cfe4baf1bd9e0").unwrap());
 	}
 }
+*/

@@ -31,9 +31,8 @@ pub use self::action_params::{ActionParams, ActionValue};
 pub use self::env_info::EnvInfo;
 pub use self::call_type::CallType;
 pub use self::return_data::ReturnData;
-pub use self::error::TrapError;
-use self::ext::{Ext, MessageCallResult, ContractCreateResult};
-use self::error::ExecTrapResult;
+pub use self::error::{TrapError, ExecTrapResult, TrapKind};
+pub use self::ext::{Ext, MessageCallResult, ContractCreateResult, CreateContractAddress};
 use self::return_data::GasLeft;
 
 /// Virtual Machine interface
