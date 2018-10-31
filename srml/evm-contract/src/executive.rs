@@ -59,7 +59,7 @@ pub fn into_message_call_result(result: vm::Result<FinalizationResult>) -> vm::M
 }
 
 /// Convert a finalization result into a VM contract create result.
-pub fn into_contract_create_result<AccountId>(result: vm::Result<FinalizationResult>, address: AccountId, substate: &mut Substate) -> vm::ContractCreateResult {
+pub fn into_contract_create_result<AccountId>(result: vm::Result<FinalizationResult>, address: AccountId, substate: &mut Substate) -> vm::ContractCreateResult<AccountId> {
 	match result {
 		Ok(FinalizationResult { gas_left, apply_state: true, .. }) => {
 			substate.contracts_created.push(address.clone());
@@ -81,8 +81,8 @@ enum CallCreateExecutiveKind<AccountId: Clone> {
 	Transfer(ActionParams<AccountId>),
 	ExecCall(ActionParams<AccountId>, Substate),
 	ExecCreate(ActionParams<AccountId>, Substate),
-	ResumeCall(OriginInfo<AccountId>, Box<ResumeCall>, Substate),
-	ResumeCreate(OriginInfo<AccountId>, Box<ResumeCreate>, Substate),
+	ResumeCall(OriginInfo<AccountId>, Box<ResumeCall<AccountId>>, Substate),
+	ResumeCreate(OriginInfo<AccountId>, Box<ResumeCreate<AccountId>>, Substate),
 }
 
 /// Executive for a raw call/create action.
@@ -389,7 +389,7 @@ impl<'a, AccountId: Clone> CallCreateExecutive<'a, AccountId> {
 	/// Resume execution from a create trap previsouly trapped by `exec`.
 	///
 	/// Current-level tracing is expected to be handled by caller.
-	pub fn resume_create<B: 'a + StateBackend>(mut self, result: vm::ContractCreateResult, state: &mut State<B>, substate: &mut Substate) -> ExecutiveTrapResult<'a, FinalizationResult, AccountId> {
+	pub fn resume_create<B: 'a + StateBackend>(mut self, result: vm::ContractCreateResult<AccountId>, state: &mut State<B>, substate: &mut Substate) -> ExecutiveTrapResult<'a, FinalizationResult, AccountId> {
 		match self.kind {
 			CallCreateExecutiveKind::ResumeCreate(origin_info, resume, mut unconfirmed_substate) => {
 				let out = {
@@ -664,7 +664,7 @@ impl<'a, B: 'a + StateBackend> Executive<'a, B> {
 		let gas = params.gas;
 
 		let vm_factory = self.state.vm_factory();
-		let result = CallCreateExecutive::new_call_raw(
+		CallCreateExecutive::new_call_raw(
 			params,
 			self.info,
 			self.schedule,

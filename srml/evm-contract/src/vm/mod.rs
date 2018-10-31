@@ -30,29 +30,28 @@ pub use self::schedule::Schedule;
 pub use self::action_params::{ActionParams, ActionValue};
 pub use self::env_info::EnvInfo;
 pub use self::call_type::CallType;
-pub use self::return_data::ReturnData;
-pub use self::error::{TrapError, ExecTrapResult, TrapKind};
+pub use self::return_data::{ReturnData, GasLeft};
+pub use self::error::{TrapError, ExecTrapResult, TrapKind, Result};
 pub use self::ext::{Ext, MessageCallResult, ContractCreateResult, CreateContractAddress};
-use self::return_data::GasLeft;
 
 /// Virtual Machine interface
-pub trait Exec: Send {
+pub trait Exec<AccountId>: Send {
 	/// This function should be used to execute transaction.
 	/// It returns either an error, a known amount of gas left, or parameters to be used
 	/// to compute the final gas left.
-	fn exec(self: Box<Self>, ext: &mut Ext) -> ExecTrapResult<GasLeft>;
+	fn exec(self: Box<Self>, ext: &mut Ext<AccountId>) -> ExecTrapResult<GasLeft>;
 }
 
 /// Resume call interface
-pub trait ResumeCall: Send {
+pub trait ResumeCall<AccountId>: Send {
 	/// Resume an execution for call, returns back the Vm interface.
-	fn resume_call(self: Box<Self>, result: MessageCallResult) -> Box<Exec>;
+	fn resume_call(self: Box<Self>, result: MessageCallResult) -> Box<Exec<AccountId>>;
 }
 
 /// Resume create interface
-pub trait ResumeCreate: Send {
+pub trait ResumeCreate<AccountId>: Send {
 	/// Resume an execution from create, returns back the Vm interface.
-	fn resume_create(self: Box<Self>, result: ContractCreateResult) -> Box<Exec>;
+	fn resume_create(self: Box<Self>, result: ContractCreateResult<AccountId>) -> Box<Exec<AccountId>>;
 }
 
 pub fn create<AccountId, >

@@ -17,20 +17,16 @@
 //! Interface for Evm externalities.
 
 use std::sync::Arc;
-use ethereum_types::{U256, H256, Address};
+use ethereum_types::{U256, H256};
 use bytes::Bytes;
-use call_type::CallType;
-use env_info::EnvInfo;
-use schedule::Schedule;
-use return_data::ReturnData;
-use error::{Result, TrapKind};
+use super::{CallType, EnvInfo, Schedule, ReturnData, Result, TrapKind};
 
 #[derive(Debug)]
 /// Result of externalities create function.
-pub enum ContractCreateResult {
+pub enum ContractCreateResult<AccountId> {
 	/// Returned when creation was successfull.
 	/// Contains an address of newly created contract and gas left.
-	Created(Address, U256),
+	Created(AccountId, U256),
 	/// Returned when contract creation failed.
 	/// VM doesn't have to know the reason.
 	Failed,
@@ -64,7 +60,7 @@ pub enum CreateContractAddress {
 }
 
 /// Externalities interface for EVMs
-pub trait Ext {
+pub trait Ext<AccountId> {
 	/// Returns the storage value for a given key if reversion happens on the current transaction.
 	fn initial_storage_at(&self, key: &H256) -> Result<H256>;
 
@@ -75,16 +71,16 @@ pub trait Ext {
 	fn set_storage(&mut self, key: H256, value: H256) -> Result<()>;
 
 	/// Determine whether an account exists.
-	fn exists(&self, address: &Address) -> Result<bool>;
+	fn exists(&self, address: &AccountId) -> Result<bool>;
 
 	/// Determine whether an account exists and is not null (zero balance/nonce, no code).
-	fn exists_and_not_null(&self, address: &Address) -> Result<bool>;
+	fn exists_and_not_null(&self, address: &AccountId) -> Result<bool>;
 
 	/// Balance of the origin account.
 	fn origin_balance(&self) -> Result<U256>;
 
 	/// Returns address balance.
-	fn balance(&self, address: &Address) -> Result<U256>;
+	fn balance(&self, address: &AccountId) -> Result<U256>;
 
 	/// Returns the hash of one of the 256 most recent complete blocks.
 	fn blockhash(&mut self, number: &U256) -> H256;
@@ -99,7 +95,7 @@ pub trait Ext {
 		code: &[u8],
 		address: CreateContractAddress,
 		trap: bool,
-	) -> ::std::result::Result<ContractCreateResult, TrapKind>;
+	) -> ::std::result::Result<ContractCreateResult<AccountId>, TrapKind>;
 
 	/// Message call.
 	///
@@ -109,23 +105,23 @@ pub trait Ext {
 	fn call(
 		&mut self,
 		gas: &U256,
-		sender_address: &Address,
-		receive_address: &Address,
+		sender_address: &AccountId,
+		receive_address: &AccountId,
 		value: Option<U256>,
 		data: &[u8],
-		code_address: &Address,
+		code_address: &AccountId,
 		call_type: CallType,
 		trap: bool
 	) -> ::std::result::Result<MessageCallResult, TrapKind>;
 
 	/// Returns code at given address
-	fn extcode(&self, address: &Address) -> Result<Option<Arc<Bytes>>>;
+	fn extcode(&self, address: &AccountId) -> Result<Option<Arc<Bytes>>>;
 
 	/// Returns code hash at given address
-	fn extcodehash(&self, address: &Address) -> Result<Option<H256>>;
+	fn extcodehash(&self, address: &AccountId) -> Result<Option<H256>>;
 
 	/// Returns code size at given address
-	fn extcodesize(&self, address: &Address) -> Result<Option<usize>>;
+	fn extcodesize(&self, address: &AccountId) -> Result<Option<usize>>;
 
 	/// Creates log entry with given topics and data
 	fn log(&mut self, topics: Vec<H256>, data: &[u8]) -> Result<()>;
@@ -136,7 +132,7 @@ pub trait Ext {
 
 	/// Should be called when contract commits suicide.
 	/// Address to which funds should be refunded.
-	fn suicide(&mut self, refund_address: &Address) -> Result<()> ;
+	fn suicide(&mut self, refund_address: &AccountId) -> Result<()> ;
 
 	/// Returns schedule.
 	fn schedule(&self) -> &Schedule;

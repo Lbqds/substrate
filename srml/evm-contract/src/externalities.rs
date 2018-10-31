@@ -17,7 +17,7 @@
 //! Transaction Execution environment.
 use std::cmp;
 use std::sync::Arc;
-use ethereum_types::{H256, U256, Address};
+use ethereum_types::{H256, U256};
 use bytes::Bytes;
 use executive::*;
 use vm::{
@@ -152,7 +152,7 @@ impl<'a, B: 'a, AccountId> Ext for Externalities<'a, B, AccountId>
 		code: &[u8],
 		address_scheme: CreateContractAddress,
 		trap: bool,
-	) -> ::std::result::Result<ContractCreateResult, TrapKind> {
+	) -> ::std::result::Result<ContractCreateResult<AccountId>, TrapKind> {
 		// create new contract address
 		let (address, code_hash) = match self.state.nonce(&self.origin_info.address) {
 			Ok(nonce) => contract_address(address_scheme, &self.origin_info.address, &nonce, &code),
